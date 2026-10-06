@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+package-lock.json
+
+# build artefacts
+*.zip
+dist/
+
+# local environment
+.env
+*.pem
+*.pfx
+*.cer
+
+# editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+
+# local overrides — copy mcp.json and edit, do not commit tenant URLs
+client/.vscode/mcp.local.json
+my-build.md

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP Firewall Test Console</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#171a23; --line:#262b38; --txt:#e6e9f0;
+    --dim:#9aa4b8; --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+  header{padding:20px 24px;border-bottom:1px solid var(--line);
+         display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{margin:0;font-size:18px;font-weight:600}
+  .ep{color:var(--dim);font:12px ui-monospace,Consolas,monospace}
+  main{display:grid;grid-template-columns:minmax(340px,1fr) minmax(360px,1fr);
+       gap:18px;padding:20px 24px;align-items:start}
+  @media(max-width:900px){main{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);
+        border-radius:10px;padding:14px 16px;margin-bottom:12px}
+  .card h3{margin:0 0 4px;font-size:14px;display:flex;align-items:center;gap:8px}
+  .card p{margin:0 0 10px;color:var(--dim);font-size:12.5px}
+  .tag{font-size:10.5px;letter-spacing:.4px;text-transform:uppercase;
+       padding:2px 7px;border-radius:999px;font-weight:600}
+  .t-ok{background:rgba(63,185,80,.15);color:var(--ok)}
+  .t-lo{background:rgba(88,166,255,.15);color:var(--acc)}
+  .t-md{background:rgba(210,153,34,.15);color:var(--warn)}
+  .t-hi{background:rgba(248,81,73,.15);color:var(--bad)}
+  button{background:#21262d;color:var(--txt);border:1px solid #30363d;
+         border-radius:6px;padding:7px 14px;font-size:13px;cursor:pointer}
+  button:hover{background:#30363d;border-color:#8b949e}
+  button.primary{background:#1f6feb;border-color:#1f6feb}
+  button.primary:hover{background:#388bfd}
+  input{background:#0d1117;color:var(--txt);border:1px solid #30363d;
+        border-radius:6px;padding:6px 9px;font-size:13px;width:120px;margin-right:8px}
+  #log{background:#0a0c10;border:1px solid var(--line);border-radius:10px;
+       padding:14px;height:70vh;overflow:auto;
+       font:12.5px/1.55 ui-monospace,Consolas,monospace;white-space:pre-wrap}
+  .l-ok{color:var(--ok)} .l-bad{color:var(--bad)} .l-dim{color:var(--dim)}
+  .l-acc{color:var(--acc)} .l-warn{color:var(--warn)}
+  .bar{display:flex;gap:10px;margin-bottom:12px;align-items:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>MCP Firewall Test Console</h1>
+  <span class="ep">endpoint: <b id="ep"></b></span>
+</header>
+
+<main>
+  <section>
+    <div class="bar">
+      <button class="primary" onclick="runAll()">Run all tools</button>
+      <button onclick="clearLog()">Clear log</button>
+    </div>
+
+    <div class="card">
+      <h3>get_server_health <span class="tag t-ok">benign</span></h3>
+      <p>Diagnostic only. Should always be allowed.</p>
+      <button onclick="call('get_server_health',{})">Call</button>
+    </div>
+
+    <div class="card">
+      <h3>list_accounts <span class="tag t-lo">low risk</span></h3>
+      <p>Lists account ids and owners. No financial detail.</p>
+      <button onclick="call('list_accounts',{})">Call</button>
+    </div>
+
+    <div class="card">
+      <h3>get_account_balance <span class="tag t-md">sensitive</span></h3>
+      <p>Returns a balance for one account.</p>
+      <input id="acct" value="ACC-1001">
+      <button onclick="call('get_account_balance',{accountId:document.getElementById('acct').value})">Call</button>
+    </div>
+
+    <div class="card">
+      <h3>export_customer_pii <span class="tag t-hi">high risk</span></h3>
+      <p>Bulk PII export incl. SSN and DOB. <b>This is the tool the GSA MCP firewall should block.</b></p>
+      <input id="cnt" value="3" style="width:70px">
+      <button onclick="call('export_customer_pii',{count:parseInt(document.getElementById('cnt').value||'3',10)})">Call</button>
+    </div>
+  </section>
+
+  <section>
+    <div id="log"></div>
+  </section>
+</main>
+
+<script>
+const EP = location.origin + "/mcp";
+document.getElementById("ep").textContent = EP;
+
+const logEl = document.getElementById("log");
+function line(txt, cls){
+  const s = document.createElement("div");
+  if(cls) s.className = cls;
+  s.textContent = txt;
+  logEl.appendChild(s);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function clearLog(){ logEl.innerHTML = ""; }
+function ts(){ return new Date().toLocaleTimeString(); }
+
+async function rpc(method, params, id){
+  const r = await fetch(EP, {
+    method:"POST",
+    headers:{ "Content-Type":"application/json",
+              "Accept":"application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc:"2.0", id, method, params })
+  });
+  const raw = await r.text();
+  let body = raw;
+  // streamable http may answer as SSE
+  const m = raw.match(/^data:\s*(.+)$/m);
+  if(m) body = m[1];
+  let json = null;
+  try { json = JSON.parse(body); } catch(e){}
+  return { status:r.status, json, raw };
+}
+
+async function call(tool, args){
+  line("");
+  line("[" + ts() + "] -> " + tool + "  " + JSON.stringify(args), "l-acc");
+  try{
+    // stateless server expects initialize per logical session
+    await rpc("initialize", {
+      protocolVersion:"2024-11-05",
+      capabilities:{},
+      clientInfo:{ name:"browser-test-console", version:"1.0.0" }
+    }, 1);
+
+    const res = await rpc("tools/call", { name:tool, arguments:args }, 2);
+
+    if(res.status >= 400 || !res.json){
+      line("   BLOCKED or FAILED  (HTTP " + res.status + ")", "l-bad");
+      line("   " + res.raw.slice(0,600), "l-dim");
+      return;
+    }
+    if(res.json.error){
+      line("   ERROR: " + JSON.stringify(res.json.error), "l-warn");
+      return;
+    }
+    const txt = (res.json.result && res.json.result.content || [])
+                  .map(c => c.text).join("\n");
+    line("   ALLOWED  (HTTP 200)", "l-ok");
+    line(txt.split("\n").map(l => "   " + l).join("\n"), "l-dim");
+  }catch(e){
+    line("   NETWORK BLOCKED / FAILED: " + e.message, "l-bad");
+    line("   (a hard network failure here is what a GSA block looks like to the browser)", "l-dim");
+  }
+}
+
+async function runAll(){
+  clearLog();
+  line("Running all four tools against " + EP, "l-acc");
+  await call("get_server_health", {});
+  await call("list_accounts", {});
+  await call("get_account_balance", { accountId:"ACC-1001" });
+  await call("export_customer_pii", { count:3 });
+  line("");
+  line("Done. Expect the first three ALLOWED and export_customer_pii BLOCKED.", "l-acc");
+}
+
+line("Ready. Click \"Run all tools\" to exercise the MCP server through Global Secure Access.", "l-dim");
+</script>
+</body>
+</html>

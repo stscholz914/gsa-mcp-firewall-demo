@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "contoso-tools": {
+      "type": "http",
+      "url": "https://<APP_NAME>.azurewebsites.net/mcp"
+    }
+  }
+}
